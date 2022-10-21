@@ -15,24 +15,24 @@ logging.basicConfig(
     handlers=HANDLERS
 )
 logger = logging.getLogger(__name__)
-DB_CONNECTION_MAP = dict()
+
+DB_COUNTER = 0
 
 
-# Function to get a database connection.
-# This function connects to database with the name `database.db`
 def get_db_connection():
+    """This function connects to database with the name `database.db`"""
+    global DB_COUNTER
     connection = sqlite3.connect('database.db')
     connection.row_factory = sqlite3.Row
+    DB_COUNTER += 1
     return connection
 
 
-# Function to get a post using its ID
 def get_post(post_id):
+    """Function to get a post using its ID"""
     connection = get_db_connection()
     post = connection.execute('SELECT * FROM posts WHERE id = ?',
                               (post_id,)).fetchone()
-    if 'get_post' not in DB_CONNECTION_MAP:
-        DB_CONNECTION_MAP['get_post'] = 1
     logger.info(f"Retrieved post by using id -> {post_id}")
     connection.close()
     return post
@@ -43,13 +43,11 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your secret key'
 
 
-# Define the main route of the web application
 @app.route('/')
 def index():
+    """The main route of the web application"""
     connection = get_db_connection()
     posts = connection.execute('SELECT * FROM posts').fetchall()
-    if 'index' not in DB_CONNECTION_MAP:
-        DB_CONNECTION_MAP['index'] = 1
     connection.close()
     logger.debug(f"Retrieved all the posts from DB -> {len(posts)}")
     return render_template('index.html', posts=posts)
@@ -89,8 +87,6 @@ def create():
             connection = get_db_connection()
             connection.execute('INSERT INTO posts (title, content) VALUES (?, ?)',
                                (title, content))
-            if 'create' not in DB_CONNECTION_MAP:
-                DB_CONNECTION_MAP['create'] = 1
             connection.commit()
             connection.close()
             logger.debug(f"Created post in the db having title -> {title}")
@@ -120,9 +116,7 @@ def metrics():
     row = cursor.fetchone()
     if row:
         body['post_count'] = row[0]
-    if 'metrics' not in DB_CONNECTION_MAP:
-        DB_CONNECTION_MAP['metrics'] = 1
-    body['db_connection_count'] = sum(DB_CONNECTION_MAP.values())
+    body['db_connection_count'] = DB_COUNTER
 
     logger.debug(f"Total number of posts are -> {body['post_count']}")
     response = app.response_class(
