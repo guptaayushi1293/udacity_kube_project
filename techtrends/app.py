@@ -1,5 +1,21 @@
 import sqlite3
+import sys
+
 from flask import Flask, json, render_template, request, url_for, redirect, flash
+import logging
+
+STDOUT_HANDLER = logging.StreamHandler(stream=sys.stdout)
+STDERR_HANDLER = logging.StreamHandler(stream=sys.stderr)
+HANDLERS = [STDERR_HANDLER, STDOUT_HANDLER]
+
+FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    handlers=HANDLERS
+)
+logger = logging.getLogger(__name__)
+DB_CONNECTION_MAP = dict()
 
 
 # Function to get a database connection.
@@ -15,7 +31,9 @@ def get_post(post_id):
     connection = get_db_connection()
     post = connection.execute('SELECT * FROM posts WHERE id = ?',
                               (post_id,)).fetchone()
-    app.logger.info(f"Retrieved post by using id -> {post_id}")
+    if 'get_post' not in DB_CONNECTION_MAP:
+        DB_CONNECTION_MAP['get_post'] = 1
+    logger.info(f"Retrieved post by using id -> {post_id}")
     connection.close()
     return post
 
@@ -25,21 +43,26 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your secret key'
 
 
-# Define the main route of the web application 
+# Define the main route of the web application
 @app.route('/')
 def index():
     connection = get_db_connection()
     posts = connection.execute('SELECT * FROM posts').fetchall()
+    if 'index' not in DB_CONNECTION_MAP:
+        DB_CONNECTION_MAP['index'] = 1
     connection.close()
+    logger.debug(f"Retrieved all the posts from DB -> {len(posts)}")
     return render_template('index.html', posts=posts)
 
 
-# Define how each individual article is rendered 
+# Define how each individual article is rendered
 # If the post ID is not found a 404 page is shown
 @app.route('/<int:post_id>')
 def post(post_id):
+    logger.debug(f"Get post by using id -> {post_id}")
     post = get_post(post_id)
     if post is None:
+        logger.debug(f"Post does not exists for id -> {post_id}")
         return render_template('404.html'), 404
     else:
         return render_template('post.html', post=post)
@@ -48,12 +71,14 @@ def post(post_id):
 # Define the About Us page
 @app.route('/about')
 def about():
+    logger.debug(f"Accessing about us page.")
     return render_template('about.html')
 
 
 # Define the post creation functionality
 @app.route('/create', methods=('GET', 'POST'))
 def create():
+    logger.debug(f"Creating new post.")
     if request.method == 'POST':
         title = request.form['title']
         content = request.form['content']
@@ -64,9 +89,11 @@ def create():
             connection = get_db_connection()
             connection.execute('INSERT INTO posts (title, content) VALUES (?, ?)',
                                (title, content))
+            if 'create' not in DB_CONNECTION_MAP:
+                DB_CONNECTION_MAP['create'] = 1
             connection.commit()
             connection.close()
-            app.logger.info(f"Created post in the db having title -> {title}")
+            logger.debug(f"Created post in the db having title -> {title}")
             return redirect(url_for('index'))
 
     return render_template('create.html')
@@ -85,7 +112,7 @@ def health_check():
 @app.route('/metrics')
 def metrics():
     body = {
-        'db_connection_count': 1,
+        'db_connection_count': 0,
         'post_count': 0
     }
     connection = get_db_connection()
@@ -93,7 +120,11 @@ def metrics():
     row = cursor.fetchone()
     if row:
         body['post_count'] = row[0]
-    app.logger.info(f"Total number of posts are -> {body['post_count']}")
+    if 'metrics' not in DB_CONNECTION_MAP:
+        DB_CONNECTION_MAP['metrics'] = 1
+    body['db_connection_count'] = sum(DB_CONNECTION_MAP.values())
+
+    logger.debug(f"Total number of posts are -> {body['post_count']}")
     response = app.response_class(
         response=json.dumps(body),
         status=200,
